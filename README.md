@@ -1,8 +1,6 @@
 # Hajj Crowd Monitor
 
-Sistem pemantauan keramaian pedestrian jamaah haji berbasis video CCTV menggunakan YOLOv8 dan DeepSORT, dilengkapi visualisasi peta interaktif untuk pemantauan real-time.
-
-Dikembangkan sebagai bagian dari skripsi S1 Fisika, Universitas Airlangga (2026).
+Sistem pemantauan keramaian pedestrian jamaah haji berbasis video CCTV menggunakan YOLOv8 dan DeepSORT dilengkapi visualisasi peta interaktif untuk pemantauan real time.
 
 ---
 
@@ -10,7 +8,7 @@ Dikembangkan sebagai bagian dari skripsi S1 Fisika, Universitas Airlangga (2026)
 
 ### Deteksi dan Pelacakan Orang
 
-Setiap orang dalam frame dideteksi menggunakan YOLOv8 dan dilacak dengan DeepSORT, sehingga setiap individu memiliki ID yang konsisten antarframe. Dari hasil pelacakan ini dihitung jumlah orang aktif dan kecepatan relatif masing-masing.
+Setiap orang dalam frame dideteksi menggunakan YOLOv8 dan dilacak dengan DeepSORT, sehingga setiap individu memiliki ID yang antarframe. Dari hasil pelacakan ini dihitung jumlah orang aktif dan kecepatan relatif masing masing.
 
 ![Demo Tracking](docs/images/demo_tracking.png)
 
@@ -18,7 +16,7 @@ Setiap orang dalam frame dideteksi menggunakan YOLOv8 dan dilacak dengan DeepSOR
 
 ### Heatmap Kepadatan
 
-Overlay heatmap ditampilkan langsung di atas frame video berdasarkan sebaran dan kepadatan orang. Area yang lebih padat ditandai dengan warna yang lebih hangat (merah/kuning), sedangkan area yang lebih kosong berwarna biru.
+Heatmap ditampilkan di atas frame video berdasarkan sebaran dan kepadatan orang. Area yang lebih padat ditandai dengan warna merah/kuning, sedangkan area yang lebih kosong berwarna biru.
 
 ![Demo Heatmap](docs/images/demo_heatmap.png)
 
@@ -31,18 +29,18 @@ Setiap 1 detik, sistem merangkum kondisi keramaian dalam rolling window 10 detik
 **Tingkat keramaian** ditentukan dari rata-rata jumlah orang:
 
 ```
-C < 60            → RENDAH
-60 ≤ C < 90       → SEDANG
-C ≥ 90            → TINGGI
+C < 60            : RENDAH
+60 ≤ C < 90       : SEDANG
+C ≥ 90            : TINGGI
 ```
 
 **Kondisi pergerakan** ditentukan dari proporsi pejalan kaki berkecepatan rendah (slow ratio):
 
 ```
-Keramaian rendah              → LANCAR (otomatis)
+Keramaian rendah              : LANCAR (otomatis)
 Keramaian sedang/tinggi:
-  slow ratio ≥ 0.30           → TERSENDAT
-  slow ratio < 0.30           → LANCAR
+  slow ratio ≥ 0.30           : TERSENDAT
+  slow ratio < 0.30           : LANCAR
 ```
 
 Kecepatan setiap orang dihitung sebagai kecepatan relatif yang dinormalisasi dengan tinggi bounding box, sehingga tidak terpengaruh perbedaan skala akibat perspektif kamera:
@@ -55,7 +53,7 @@ v_norm = displacement_piksel / (Δt × bbox_height)
 
 ### Alert: Bottleneck
 
-Terdeteksi ketika area tertentu menunjukkan hampir tidak ada pergerakan — orang-orang di dalamnya berhenti atau bergerak sangat lambat di bawah ambang bottleneck. Alert ini berbasis grid dan tidak bergantung pada ID individu.
+Terdeteksi ketika area tertentu menunjukkan hampir tidak ada pergerakan, orang orang berhenti atau bergerak sangat lambat di bawah ambang bottleneck. Alert ini berbasis grid dan tidak bergantung pada ID individu.
 
 ![Demo Bottleneck](docs/images/demo_alert_bottleneck.png)
 
@@ -63,7 +61,7 @@ Terdeteksi ketika area tertentu menunjukkan hampir tidak ada pergerakan — oran
 
 ### Alert: Diam di Keramaian
 
-Terdeteksi ketika satu atau dua orang berhenti dalam waktu cukup lama sementara orang-orang di sekitarnya terus bergerak. Kondisi ini berpotensi memicu hambatan lokal di tengah arus yang aktif.
+Terdeteksi ketika satu atau dua orang berhenti dalam waktu cukup lama sementara orang-orang di sekitarnya terus bergerak. Kondisi ini berpotensi memicu hambatan di tengah arus yang berjalan.
 
 ![Demo Stationary](docs/images/demo_alert_stationary.png)
 
@@ -71,7 +69,7 @@ Terdeteksi ketika satu atau dua orang berhenti dalam waktu cukup lama sementara 
 
 ### Alert: Kelompok Bergerombol
 
-Terdeteksi ketika beberapa orang berkecepatan rendah berkumpul di area grid yang sama dalam waktu tertentu. Deteksi ini menggunakan pendekatan berbasis area, bukan berbasis identitas individu, sehingga lebih tahan terhadap pergantian ID pada crowd yang padat.
+Terdeteksi ketika beberapa orang berkecepatan rendah atau hampir diam berkumpul di area grid yang sama dalam waktu tertentu. Deteksi ini menggunakan pendekatan berbasis area, bukan berbasis identitas individu (ID).
 
 ![Demo Loitering](docs/images/demo_alert_loitering.png)
 
@@ -79,7 +77,7 @@ Terdeteksi ketika beberapa orang berkecepatan rendah berkumpul di area grid yang
 
 ### Peta Interaktif dan Dashboard
 
-Hasil analisis dari setiap titik pengamatan divisualisasikan pada peta interaktif berbasis Leaflet.js. Setiap lokasi ditampilkan sebagai marker berwarna sesuai tingkat keramaiannya — hijau untuk rendah, kuning untuk sedang, merah untuk tinggi — disertai ringkasan kondisi terkini.
+Hasil analisis dari setiap titik pengamatan divisualisasikan pada peta interaktif berbasis Leaflet.js. Setiap lokasi ditampilkan sebagai marker berwarna sesuai tingkat keramaiannya - hijau untuk rendah, kuning untuk sedang, merah untuk tinggi yang disertai ringkasan kondisi pada dashboard.
 
 ![Demo Map](docs/images/demo_map.png)
 
@@ -98,7 +96,7 @@ Video CCTV
 Deteksi objek per frame (YOLOv8)
     │
     ▼
-Pelacakan multi-objek antarframe (DeepSORT)
+Pelacakan multi objek antarframe (DeepSORT)
     │
     ▼
 Perhitungan v_norm per track
@@ -107,7 +105,7 @@ Perhitungan v_norm per track
 Agregasi rolling window 10 detik
     │
     ├──► Klasifikasi keramaian + kondisi pergerakan
-    ├──► Deteksi alert (Bottleneck / Stationary / Loitering)
+    ├──► Deteksi alert (Bottleneck / individu / kelompok diam di keramaian)
     └──► Visualisasi peta + dashboard
 ```
 
@@ -170,10 +168,10 @@ python run_app.py
 
 Langkah penggunaan:
 
-1. Pilih video — klik Browse dan pilih file video CCTV
-2. Isi lokasi — masukkan nama lokasi dan pilih koordinat dari peta
-3. Klik Mulai Analisis — sistem akan memproses video
-4. Lihat hasil — pantau peta dan dashboard analitik yang diperbarui setiap detik
+1. Pilih video - klik Browse dan pilih file video CCTV
+2. Isi lokasi - masukkan nama lokasi dan pilih koordinat dari peta
+3. Klik Mulai Analisis - sistem akan memproses video
+4. Lihat hasil - pantau peta dan dashboard analitik yang diperbarui setiap detik
 
 ---
 
@@ -183,25 +181,25 @@ Langkah penggunaan:
 project/
 ├── app/                        # Komponen antarmuka (PyQt6)
 │   ├── main_window.py          # Jendela utama aplikasi
-│   ├── worker.py               # Background worker untuk proses analisis
-│   ├── styles.py               # Stylesheet antarmuka
+│   ├── worker.py               # Untuk proses analisis
+│   ├── styles.py               # Pengaturan design antarmuka
 │   └── widgets/
 │       ├── chart_widget.py     # Grafik tren jumlah orang dan slow ratio
 │       ├── input_panel.py      # Panel input video dan lokasi
 │       ├── map_picker.py       # Pemilih koordinat dari peta interaktif
-│       ├── results_panel.py    # Panel hasil analisis real-time
+│       ├── results_panel.py    # Panel hasil analisis real time
 │       ├── log_panel.py        # Panel log proses
 │       └── status_bar.py       # Status bar aplikasi
 ├── bottleneck_detector.py      # Deteksi area bottleneck berbasis grid
 ├── classifier.py               # Logika klasifikasi keramaian dan pergerakan
 ├── detector.py                 # Deteksi objek YOLOv8
-├── heatmap.py                  # Kalkulasi dan render overlay heatmap kepadatan
+├── heatmap.py                  # Heatmap kepadatan
 ├── main.py                     # Pipeline utama deteksi, tracking, dan output
 ├── metrics.py                  # Perhitungan v_norm dan slow ratio per track
 ├── rolling_window.py           # Agregasi temporal rolling window
-├── stationary_detector.py      # Deteksi stationary in crowd dan loitering group
-├── tracker.py                  # Pelacakan multi-objek DeepSORT
-├── video_writer.py             # Render output video beranotasi
+├── stationary_detector.py      # Deteksi alert kerumunan dan individu diam di keramaian
+├── tracker.py                  # Pelacakan  DeepSORT
+├── video_writer.py             # Mengatur output video yang sudah beranotasi
 ├── run_app.py                  # Entry point aplikasi desktop
 └── outputs/                    # Hasil analisis (digenerate otomatis)
 ```
@@ -214,14 +212,14 @@ project/
 |---|---|---|
 | CONF_THRESH | 0.40 | Confidence threshold deteksi YOLOv8 |
 | IOU_THRESH | 0.50 | IoU threshold NMS |
-| IMGSZ | 1280 | Resolusi inferensi (piksel) |
+| IMGSZ | 1280 | Resolusi piksel |
 | TAU | 0.241 | Ambang kecepatan ternormalisasi (Q1 distribusi v_norm kondisi sepi) |
 | X_COUNT | 60 | Batas bawah jumlah orang untuk keramaian sedang |
 | Y_COUNT | 90 | Batas bawah jumlah orang untuk keramaian tinggi |
 | SH | 0.30 | Ambang slow ratio untuk kondisi tersendat |
 | WINDOW_S | 10.0 | Durasi rolling window (detik) |
 
-Parameter dapat diubah melalui menu Pengaturan Lanjutan di dalam aplikasi.
+Parameter dapat diubah melalui menu Pengaturan Lanjutan di dalam aplikasi
 
 ---
 
@@ -231,9 +229,9 @@ Setiap kali analisis dijalankan, sistem menyimpan file berikut di folder `output
 
 | File | Isi |
 |---|---|
-| `monitoring_[nama].mp4` | Video beranotasi dengan overlay heatmap dan alert |
-| `annotated_[nama].mp4` | Video detail dengan bounding box dan ID tracking per orang |
-| `window_[nama].csv` | Data agregat per window (jumlah orang, slow ratio, label) |
+| `monitoring_[nama].mp4` | Video beranotasi dengan heatmap dan alert untuk gambaran monitoring |
+| `annotated_[nama].mp4` | Video dengan bounding box dan ID tracking per orang |
+| `window_[nama].csv` | Data per window (jumlah orang, slow ratio, label) |
 | `frame_[nama].csv` | Data per frame (count, n_lambat, sf) |
 | `frame_track_[nama].csv` | Data v_norm per track per frame |
 | `sd_alerts_[nama].csv` | Riwayat alert yang terdeteksi |
