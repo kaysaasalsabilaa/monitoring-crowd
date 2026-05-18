@@ -5,12 +5,19 @@ from datetime import datetime
 
 import cv2
 
-from classifier     import klasifikasi_keramaian, klasifikasi_pergerakan
-from detector       import Detektor
-from metrics        import KalkulatorMetrik
-from rolling_window import RollingCrowdWindow
-from tracker        import Tracker
-from video_writer   import AnnotatedVideoWriter
+from classifier          import (
+    klasifikasi_keramaian,
+    klasifikasi_pergerakan,
+    klasifikasi_pergerakan_3level,
+)
+from detector            import Detektor
+from heatmap             import HeatmapEngine
+from bottleneck_detector import BottleneckDetector
+from stationary_detector import StationaryDetector, LoiteringGridDetector
+from metrics             import KalkulatorMetrik
+from rolling_window      import RollingCrowdWindow
+from tracker             import Tracker
+from video_writer        import AnnotatedVideoWriter
 
 VIDEO_PATH  = "videos/video1.mp4"
 MODEL_PATH  = "best.pt"
@@ -21,37 +28,62 @@ LOCATION    = {
     "lon":  39.8262,
 }
 
-CONF_THRESH    = 0.40
-IOU_THRESH     = 0.50
-IMGSZ          = 1280
-TAU            = 0.225
-X_COUNT        = 60
-Y_COUNT        = 90
-SH             = 0.300
-WINDOW_S       = 10.0
-INTERVAL_S     = 1.0
-WARMUP_FRAMES  = 10
-CROWD_TOP_Y    = 200
+CONF_THRESH        = 0.40
+IOU_THRESH         = 0.50
+IMGSZ              = 1280
+TAU                = 0.225     
+BOTTLENECK_THRESH  = 0.05      
+SB                 = 0.15     
+X_COUNT            = 60
+Y_COUNT            = 90
+SH                 = 0.200     
+WINDOW_S           = 10.0
+INTERVAL_S         = 1.0
+WARMUP_FRAMES      = 10
+CROWD_TOP_Y        = 0         
 
 # Kolom output CSV
-FRAME_FIELDS = ["timestamp", "count", "n_terdefinisi", "n_lambat", "sf"]
+FRAME_FIELDS = ["timestamp", "count", "n_terdefinisi", "n_lambat", "n_bottleneck", "sf", "sb"]
 
 FRAME_TRACK_FIELDS = [
     "timestamp",
     "frame_idx",
     "track_id",
-    "cx",        # centroid x bounding box (piksel)
-    "cy",        # centroid y bounding box (piksel)
-    "bbox_h",    # tinggi bounding box ternormalisasi
-    "v_norm",    # kecepatan relatif ternormalisasi = (d/dt) / bbox_h
-    "is_lambat", # 1 jika v_norm < TAU, 0 jika tidak
+    "cx",
+    "cy",
+    "bbox_h",
+    "v_norm",         
+    "v_norm_smooth",  
+    "is_lambat",
+    "is_bottleneck",
+    "arus",
 ]
 
 WINDOW_FIELDS = [
     "window_k", "window_start", "window_end",
-    "count_avg", "n_terdefinisi_total", "n_lambat_total",
-    "slow_ratio", "label_crowd", "label_movement",
+    "count_avg",
+    "n_terdefinisi_total", "n_lambat_total", "n_bottleneck_total",
+    "slow_ratio", "bottleneck_ratio",
+    "label_crowd",
+    "label_movement",       
+    "label_movement_3",     
     "lat", "lon", "lokasi",
+]
+
+BD_ALERT_FIELDS = [
+    "frame_idx", "alert_type",
+    "grid_row", "grid_col",
+    "density", "avg_vnorm", "baseline_vnorm",
+    "n_slow", "slow_ratio",
+    "cx_pixel", "cy_pixel",
+    "duration_frames",
+]
+
+SD_ALERT_FIELDS = [
+    "timestamp", "alert_type",
+    "track_ids", "cx", "cy",
+    "n_tracks", "dwell_s", "n_nearby",
+    "cells", "frame_w",
 ]
 
 
@@ -76,7 +108,6 @@ def save_metadata(path, video_name, fps, location, thresholds):
 
 
 def _hitung_track_mentah(tracker_obj) -> int:
-    # Hitung jumlah track terkonfirmasi langsung dari objek DeepSort
     try:
         tracks = tracker_obj.tracker.tracks
         return sum(1 for t in tracks if t.is_confirmed())
@@ -89,24 +120,26 @@ def jalankan_pipeline(
     model_path,
     video_name,
     location,
-    output_dir     = "outputs",
-    conf_thresh    = CONF_THRESH,
-    iou_thresh     = IOU_THRESH,
-    imgsz          = IMGSZ,
-    tau            = TAU,
-    x_count        = X_COUNT,
-    y_count        = Y_COUNT,
-    sh             = SH,
-    window_s       = WINDOW_S,
-    interval_s     = INTERVAL_S,
-    warmup_frames  = WARMUP_FRAMES,
-    crowd_top_y    = CROWD_TOP_Y,
-    save_video     = True,
-    video_out_path = None,
-    on_log         = None,
-    on_progress    = None,
-    on_window      = None,
-    stop_flag      = None,
+    output_dir         = "outputs",
+    conf_thresh        = CONF_THRESH,
+    iou_thresh         = IOU_THRESH,
+    imgsz              = IMGSZ,
+    tau                = TAU,
+    bottleneck_thresh  = BOTTLENECK_THRESH,
+    sb                 = SB,
+    x_count            = X_COUNT,
+    y_count            = Y_COUNT,
+    sh                 = SH,
+    window_s           = WINDOW_S,
+    interval_s         = INTERVAL_S,
+    warmup_frames      = WARMUP_FRAMES,
+    crowd_top_y        = CROWD_TOP_Y,
+    save_video         = True,
+    video_out_path     = None,
+    on_log             = None,
+    on_progress        = None,
+    on_window          = None,
+    stop_flag          = None,
 ):
     import os
     os.makedirs(output_dir, exist_ok=True)
@@ -117,7 +150,6 @@ def jalankan_pipeline(
             on_log(msg)
 
     is_live = isinstance(video_path, int)
-
     _log(f"▶ Membuka video: {video_path}")
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -134,9 +166,8 @@ def jalankan_pipeline(
         f"Durasi: {duration_est:.1f}s │ Resolusi: {vid_w}x{vid_h}"
     )
     _log(
-        f"   Conf: {conf_thresh} │ IoU: {iou_thresh} │ "
-        f"imgsz: {imgsz} │ Warmup: {warmup_frames} │ "
-        f"crowd_top_y: {crowd_top_y}px │ TAU: {tau}"
+        f"   Conf: {conf_thresh} │ IoU: {iou_thresh} │ imgsz: {imgsz} │ "
+        f"TAU: {tau} │ BN_THRESH: {bottleneck_thresh} │ crowd_top_y: {crowd_top_y}px"
     )
 
     detektor   = Detektor(
@@ -146,37 +177,102 @@ def jalankan_pipeline(
         imgsz        = imgsz,
         zona_latar_y = crowd_top_y,
     )
+
     tracker    = Tracker(
         crowd_top_y  = crowd_top_y,
         frame_width  = vid_w,
         frame_height = vid_h,
     )
-    calculator = KalkulatorMetrik(tau=tau)
-    win        = RollingCrowdWindow(
+
+    calculator = KalkulatorMetrik(
+        tau               = tau,
+        bottleneck_thresh = bottleneck_thresh,
+    )
+
+    win = RollingCrowdWindow(
         window_s=window_s,
         output_interval_s=interval_s,
     )
 
-    vwriter   = None
-    out_video = None
-    if save_video:
-        if video_out_path is None:
-            out_video = os.path.join(output_dir, f"annotated_{video_name}.mp4")
-        else:
-            out_video = video_out_path
-        vwriter = AnnotatedVideoWriter(
-            out_video, fps, vid_w, vid_h,
-            crowd_top_y=crowd_top_y,
-        )
-        if vwriter.is_open:
-            out_video = vwriter.out_path
-            _log(f"Video output: {out_video}")
-        else:
-            _log("VideoWriter gagal dibuka - video output dinonaktifkan.")
-            vwriter   = None
-            out_video = None
+    hm_engine = HeatmapEngine(
+        frame_width  = vid_w,
+        frame_height = vid_h,
+        crowd_top_y  = crowd_top_y,
+    )
 
-    _log("✓ Model YOLOv8 + DeepSORT siap")
+    bd = BottleneckDetector(
+        frame_width  = vid_w,
+        frame_height = vid_h,
+        crowd_top_y  = crowd_top_y,
+    )
+
+    sd  = StationaryDetector()
+    lgd = LoiteringGridDetector(frame_w=vid_w, frame_h=vid_h)
+
+    vwriter_detail  = None
+    vwriter_monitor = None
+    out_video_detail  = None
+    out_video_monitor = None
+
+    SAVE_DETAIL  = True
+    SAVE_MONITOR = True
+
+    if save_video:
+        _out_detail = (
+            video_out_path
+            if video_out_path is not None
+            else os.path.join(output_dir, f"annotated_{video_name}.mp4")
+        )
+
+        if not SAVE_DETAIL:
+            _log("Video detail di-skip (SAVE_DETAIL=False) — aktifkan untuk render bbox+ID")
+
+        if SAVE_DETAIL:
+            vwriter_detail = AnnotatedVideoWriter(
+                _out_detail, fps, vid_w, vid_h,
+                crowd_top_y     = crowd_top_y,
+                show_heatmap    = True,
+                show_legend     = True,
+                monitoring_mode = False,
+                heatmap_engine  = hm_engine,
+            )
+            if vwriter_detail.is_open:
+                out_video_detail = vwriter_detail.out_path
+                _log(f"Video output (detail)     : {out_video_detail}")
+            else:
+                _log("VideoWriter detail gagal dibuka.")
+                vwriter_detail = None
+
+        if not SAVE_MONITOR:
+            _log("Video monitoring di-skip (SAVE_MONITOR=False)")
+
+        if SAVE_MONITOR:
+            _out_monitor = os.path.join(output_dir, f"monitoring_{video_name}.mp4")
+
+            from heatmap import HeatmapEngine as _HM
+            hm_engine_mon = _HM(
+                frame_width  = vid_w,
+                frame_height = vid_h,
+                crowd_top_y  = crowd_top_y,
+            )
+
+            vwriter_monitor = AnnotatedVideoWriter(
+                _out_monitor, fps, vid_w, vid_h,
+                crowd_top_y     = crowd_top_y,
+                show_heatmap    = True,
+                show_legend     = True,
+                monitoring_mode = True,
+                heatmap_engine  = hm_engine_mon,
+            )
+
+            if vwriter_monitor.is_open:
+                out_video_monitor = vwriter_monitor.out_path
+                _log(f"Video output (monitoring) : {out_video_monitor}")
+            else:
+                _log("VideoWriter monitoring gagal dibuka.")
+                vwriter_monitor = None
+
+    _log("✓ Model YOLOv8 + DeepSORT + HeatmapEngine siap")
     if warmup_frames > 0:
         _log(f"⏳ Warmup {warmup_frames} frame pertama...")
     _log("Pipeline dimulai...")
@@ -187,6 +283,8 @@ def jalankan_pipeline(
     baris_frame         = []
     frame_track_rows    = []
     baris_window        = []
+    baris_bd_alerts     = []
+    baris_sd_alerts     = []
     dihentikan_pengguna = False
 
     while cap.isOpened():
@@ -201,7 +299,6 @@ def jalankan_pipeline(
 
         ts = get_timestamp(cap, indeks_frame, fps, is_live, waktu_awal)
 
-        # Fase warmup: deteksi dan update tracker tapi tidak dicatat
         if indeks_frame < warmup_frames:
             hasil_deteksi = detektor.deteksi(frame)
             tracker.perbarui(hasil_deteksi, frame)
@@ -216,15 +313,59 @@ def jalankan_pipeline(
         jalur_terkonfirmasi   = tracker.perbarui(hasil_deteksi, frame)
         n_ghost = max(0, raw_confirmed_before - len(jalur_terkonfirmasi))
 
-        count, n_def, n_slow, sf, ids_lambat, kecepatan_track = calculator.perbarui(
-            jalur_terkonfirmasi, ts
-        )
+        (count, n_def, n_slow, n_bottle,
+         sf, sb_val,
+         ids_lambat, ids_bottleneck,
+         kecepatan_track) = calculator.perbarui(jalur_terkonfirmasi, ts)
+
+        bd_alerts, active_zones = bd.update(kecepatan_track)
+
+        for alert in bd_alerts:
+            baris_bd_alerts.append(alert)
+            label = alert["alert_type"].replace("_", " ")
+            icons = {"BOTTLENECK": "🔴"}
+            if on_log:
+                on_log(
+                    f"{icons.get(alert['alert_type'], '⚠')} {label}  "
+                    f"Zone({alert['grid_row']},{alert['grid_col']})  "
+                    f"Density={alert['density']}  "
+                    f"SlowRatio={alert['slow_ratio']:.0%}"
+                )
+
+        sd_alerts  = sd.update(jalur_terkonfirmasi, kecepatan_track, ts)
+        lgd_alerts = lgd.update(kecepatan_track, ts)
+        sd_alerts  = sd_alerts + lgd_alerts
+
+        for alert in sd_alerts:
+            alert_csv = dict(alert)
+            alert_csv["track_ids"] = str(alert["track_ids"])
+            alert_csv["cells"]   = str(alert.get("cells", ""))
+            alert_csv["frame_w"] = str(alert.get("frame_w", ""))
+            baris_sd_alerts.append(alert_csv)
+            icons_sd = {
+                "STATIONARY_IN_CROWD":   "🔴",
+                "STATIONARY_GROUP":      "🟠",
+                "LOITERING_GROUP":       "🟠",
+            }
+            label_sd = alert["alert_type"].replace("_", " ")
+            if on_log:
+                on_log(
+                    f"{icons_sd.get(alert['alert_type'], '⚠')} {label_sd}  "
+                    f"IDs={alert['track_ids']}  "
+                    f"Diam={alert['dwell_s']:.1f}s  "
+                    f"Sekitar={alert['n_nearby']} orang"
+                )
+
+        if vwriter_detail is None and vwriter_monitor is None:
+            hm_engine.update(jalur_terkonfirmasi)
+
+        abnormal_alert = bd_alerts[0] if bd_alerts else None
 
         if jumlah_diproses % 30 == 0:
             _log(
                 f"[Frame {indeks_frame}] raw_det={len(hasil_deteksi)} │ "
-                f"confirmed={count} │ slow={n_slow} │ "
-                f"ghost_suppressed={n_ghost} │ ts={ts:.1f}s"
+                f"confirmed={count} │ slow={n_slow} │ bottle={n_bottle} │ "
+                f"ghost={n_ghost} │ ts={ts:.1f}s"
             )
 
         baris_frame.append({
@@ -232,50 +373,60 @@ def jalankan_pipeline(
             "count":         count,
             "n_terdefinisi": n_def,
             "n_lambat":      n_slow,
+            "n_bottleneck":  n_bottle,
             "sf":            round(sf, 4),
+            "sb":            round(sb_val, 4),
         })
 
         for spd in kecepatan_track:
             frame_track_rows.append({
-                "timestamp": round(ts, 4),
-                "frame_idx": indeks_frame,
-                "track_id":  spd["track_id"],
-                "cx":        spd["cx"],
-                "cy":        spd["cy"],
-                "bbox_h":    spd["bbox_h"],
-                "v_norm":    spd["v_norm"],
-                "is_lambat": spd["is_lambat"],
+                "timestamp":      round(ts, 4),
+                "frame_idx":      indeks_frame,
+                "track_id":       spd["track_id"],
+                "cx":             spd["cx"],
+                "cy":             spd["cy"],
+                "bbox_h":         spd["bbox_h"],
+                "v_norm":         spd["v_norm"],
+                "v_norm_smooth":  spd.get("v_norm_smooth", spd["v_norm"]),  
+                "is_lambat":      spd["is_lambat"],
+                "is_bottleneck":  spd["is_bottleneck"],
+                "arus":           spd["arus"],
             })
 
-        # data ke rolling window dan ambil output jika waktunya
-        win.push(ts, count, n_def, n_slow)
-
+        win.push(ts, count, n_def, n_slow, n_bottle)
         while win.should_output(ts):
             feats = win.get_features(ts)
             if feats is None:
                 break
 
-            label_crowd    = klasifikasi_keramaian(
+            label_crowd      = klasifikasi_keramaian(
                 feats["count_avg"], feats["slow_ratio"],
                 X=x_count, Y=y_count, SH=sh,
             )
-            label_movement = klasifikasi_pergerakan(
+            label_movement   = klasifikasi_pergerakan(
                 feats["slow_ratio"], feats["count_avg"], x_count, SH=sh
+            )
+            label_movement_3 = klasifikasi_pergerakan_3level(
+                feats["bottleneck_ratio"], feats["slow_ratio"],
+                feats["count_avg"], x_count, SH=sh, SB=sb,
             )
 
             row = {
-                "window_k":            feats["window_k"],
-                "window_start":        feats["window_start"],
-                "window_end":          feats["window_end"],
-                "count_avg":           feats["count_avg"],
-                "n_terdefinisi_total": feats["n_terdefinisi_total"],
-                "n_lambat_total":      feats["n_lambat_total"],
-                "slow_ratio":          feats["slow_ratio"],
-                "label_crowd":         label_crowd,
-                "label_movement":      label_movement,
-                "lat":                 location["lat"],
-                "lon":                 location["lon"],
-                "lokasi":              location["nama"],
+                "window_k":              feats["window_k"],
+                "window_start":          feats["window_start"],
+                "window_end":            feats["window_end"],
+                "count_avg":             feats["count_avg"],
+                "n_terdefinisi_total":   feats["n_terdefinisi_total"],
+                "n_lambat_total":        feats["n_lambat_total"],
+                "n_bottleneck_total":    feats["n_bottleneck_total"],
+                "slow_ratio":            feats["slow_ratio"],
+                "bottleneck_ratio":      feats["bottleneck_ratio"],
+                "label_crowd":           label_crowd,
+                "label_movement":        label_movement,
+                "label_movement_3":      label_movement_3,
+                "lat":                   location["lat"],
+                "lon":                   location["lon"],
+                "lokasi":                location["nama"],
             }
             baris_window.append(row)
             if on_window:
@@ -286,32 +437,63 @@ def jalankan_pipeline(
                 f"{feats['window_start']:.1f}-{feats['window_end']:.1f}s │ "
                 f"count={feats['count_avg']:.1f} │ "
                 f"slow={feats['slow_ratio']:.3f} │ "
-                f"{label_crowd} / {label_movement}"
+                f"bottle={feats['bottleneck_ratio']:.3f} │ "
+                f"{label_crowd} / {label_movement_3}"
             )
 
-        if vwriter is not None:
-            vwriter.write_frame(
-                frame, jalur_terkonfirmasi, indeks_frame, ts,
-                ids_lambat=ids_lambat,
-                n_ghost=n_ghost,
-            )
+        _write_kwargs_detail = dict(
+            jalur_terkonfirmasi = jalur_terkonfirmasi,
+            frame_idx           = indeks_frame,
+            timestamp           = ts,
+            ids_lambat          = ids_lambat,
+            ids_bottleneck      = ids_bottleneck,
+            n_ghost             = n_ghost,
+            abnormal_alert      = abnormal_alert,
+            bd_alerts           = bd_alerts,
+            active_zones        = active_zones,
+            sd_alerts           = sd_alerts,
+            kecepatan_track     = kecepatan_track,  \
+        )
+
+        _write_kwargs_monitor = dict(
+            jalur_terkonfirmasi = jalur_terkonfirmasi,
+            frame_idx           = indeks_frame,
+            timestamp           = ts,
+            ids_lambat          = ids_lambat,
+            ids_bottleneck      = ids_bottleneck,
+            n_ghost             = n_ghost,
+            abnormal_alert      = abnormal_alert,
+            bd_alerts           = bd_alerts,
+            active_zones        = active_zones,
+            sd_alerts           = sd_alerts,
+            kecepatan_track     = kecepatan_track,  
+        )
+
+        if vwriter_detail is not None:
+            vwriter_detail.write_frame(frame, **_write_kwargs_detail)
+        if vwriter_monitor is not None:
+            vwriter_monitor.write_frame(frame, **_write_kwargs_monitor)
 
         indeks_frame    += 1
         jumlah_diproses += 1
+
         if on_progress and total_frames > 0:
             on_progress(min(int(indeks_frame / total_frames * 100), 99))
 
     cap.release()
-    if vwriter is not None:
-        vwriter.release()
-        _log(f"✅ Video tersimpan: {out_video}")
+
+    if vwriter_detail is not None:
+        vwriter_detail.release()
+        _log(f"✅ Video detail tersimpan    : {out_video_detail}")
+    if vwriter_monitor is not None:
+        vwriter_monitor.release()
+        _log(f"✅ Video monitoring tersimpan: {out_video_monitor}")
 
     _log(
         f"\n✓ Selesai — {jumlah_diproses} frame diproses "
         f"(+{warmup_frames} warmup, total {indeks_frame})"
     )
 
-    # Simpan CSV & metadata
     out_frame       = os.path.join(output_dir, f"frame_{video_name}.csv")
     out_frame_track = os.path.join(output_dir, f"frame_track_{video_name}.csv")
     out_window      = os.path.join(output_dir, f"window_{video_name}.csv")
@@ -329,10 +511,7 @@ def jalankan_pipeline(
             writer = csv.DictWriter(f, fieldnames=FRAME_TRACK_FIELDS)
             writer.writeheader()
             writer.writerows(frame_track_rows)
-        _log(
-            f"💾 Frame Track CSV    → {out_frame_track}  "
-            f"({len(frame_track_rows):,} baris)"
-        )
+        _log(f"💾 Frame Track CSV    → {out_frame_track}  ({len(frame_track_rows):,} baris)")
     else:
         _log("⚠  frame_track CSV kosong — tidak ada track dengan v_norm terdefinisi.")
 
@@ -343,19 +522,47 @@ def jalankan_pipeline(
             writer.writerows(baris_window)
         _log(f"💾 Window CSV         → {out_window}")
 
+    out_bd_alerts = os.path.join(output_dir, f"bd_alerts_{video_name}.csv")
+    if baris_bd_alerts:
+        with open(out_bd_alerts, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=BD_ALERT_FIELDS)
+            writer.writeheader()
+            writer.writerows(baris_bd_alerts)
+        _log(f"💾 BD Alerts CSV      → {out_bd_alerts}  ({len(baris_bd_alerts)} event)")
+    else:
+        _log("ℹ  Tidak ada event bottleneck/sudden-stop/suspicious-crowd terdeteksi.")
+        out_bd_alerts = None
+
+    out_sd_alerts = os.path.join(output_dir, f"sd_alerts_{video_name}.csv")
+    if baris_sd_alerts:
+        with open(out_sd_alerts, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=SD_ALERT_FIELDS)
+            writer.writeheader()
+            writer.writerows(baris_sd_alerts)
+        _log(
+            f"💾 SD Alerts CSV      → {out_sd_alerts}  ({len(baris_sd_alerts)} event: "
+            f"{sum(1 for a in baris_sd_alerts if 'IN_CROWD' in a['alert_type'])} in-crowd, "
+            f"{sum(1 for a in baris_sd_alerts if 'GROUP' in a['alert_type'])} group)"
+        )
+    else:
+        _log("ℹ  Tidak ada event stationary terdeteksi.")
+        out_sd_alerts = None
+
     thresholds = {
-        "CONF_THRESH":   conf_thresh,
-        "IOU_THRESH":    iou_thresh,
-        "IMGSZ":         imgsz,
-        "TAU":           tau,
-        "X_COUNT":       x_count,
-        "Y_COUNT":       y_count,
-        "SH":            sh,
-        "WINDOW_S":      window_s,
-        "INTERVAL_S":    interval_s,
-        "WARMUP_FRAMES": warmup_frames,
-        "CROWD_TOP_Y":   crowd_top_y,
+        "CONF_THRESH":       conf_thresh,
+        "IOU_THRESH":        iou_thresh,
+        "IMGSZ":             imgsz,
+        "TAU":               tau,
+        "BOTTLENECK_THRESH": bottleneck_thresh,
+        "SB":                sb,
+        "X_COUNT":           x_count,
+        "Y_COUNT":           y_count,
+        "SH":                sh,
+        "WINDOW_S":          window_s,
+        "INTERVAL_S":        interval_s,
+        "WARMUP_FRAMES":     warmup_frames,
     }
+
     save_metadata(
         path       = out_meta,
         video_name = video_name,
@@ -371,34 +578,40 @@ def jalankan_pipeline(
         "out_frame":           out_frame,
         "out_frame_track":     out_frame_track,
         "out_window":          out_window,
+        "out_bd_alerts":       out_bd_alerts,
+        "out_sd_alerts":       out_sd_alerts,
         "out_meta":            out_meta,
-        "out_video":           out_video,
+        "out_video":           out_video_detail,
+        "out_video_monitor":   out_video_monitor,
         "window_rows":         baris_window,
+        "bd_alert_count":      len(baris_bd_alerts),
+        "sd_alert_count":      len(baris_sd_alerts),
         "frame_count":         jumlah_diproses,
         "dihentikan_pengguna": dihentikan_pengguna,
     }
 
 
 def main():
-    """Entry point CLI."""
     jalankan_pipeline(
-        video_path    = VIDEO_PATH,
-        model_path    = MODEL_PATH,
-        video_name    = VIDEO_NAME,
-        location      = LOCATION,
-        output_dir    = "outputs",
-        conf_thresh   = CONF_THRESH,
-        iou_thresh    = IOU_THRESH,
-        imgsz         = IMGSZ,
-        tau           = TAU,
-        x_count       = X_COUNT,
-        y_count       = Y_COUNT,
-        sh            = SH,
-        window_s      = WINDOW_S,
-        interval_s    = INTERVAL_S,
-        warmup_frames = WARMUP_FRAMES,
-        crowd_top_y   = CROWD_TOP_Y,
-        save_video    = True,
+        video_path        = VIDEO_PATH,
+        model_path        = MODEL_PATH,
+        video_name        = VIDEO_NAME,
+        location          = LOCATION,
+        output_dir        = "outputs",
+        conf_thresh       = CONF_THRESH,
+        iou_thresh        = IOU_THRESH,
+        imgsz             = IMGSZ,
+        tau               = TAU,
+        bottleneck_thresh = BOTTLENECK_THRESH,
+        sb                = SB,
+        x_count           = X_COUNT,
+        y_count           = Y_COUNT,
+        sh                = SH,
+        window_s          = WINDOW_S,
+        interval_s        = INTERVAL_S,
+        warmup_frames     = WARMUP_FRAMES,
+        crowd_top_y       = CROWD_TOP_Y,
+        save_video        = True,
     )
 
 

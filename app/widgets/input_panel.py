@@ -122,12 +122,10 @@ class AdvancedSettings(QWidget):
         )
         self.warmup_spin = _ispin(10, 0, 120)
 
-        self.crowd_top_y_spin = _ispin(200, 0, 400)
-
         self.tau_spin      = _dspin(0.2249, 0.001, 5.0, 0.01, 3)
         self.x_spin        = _ispin(60,  1, 9999)
         self.y_spin        = _ispin(90, 1, 9999)
-        self.sh_spin       = _dspin(0.300, 0.0, 1.0,  0.05, 2)
+        self.sh_spin       = _dspin(0.200, 0.0, 1.0,  0.05, 2)
         self.window_spin   = _dspin(10.0, 1.0, 300.0, 1.0, 1, " s")
         self.interval_spin = _dspin(1.0,  0.1,  60.0, 0.5, 1, " s")
 
@@ -157,27 +155,30 @@ class AdvancedSettings(QWidget):
             self.warmup_spin
         ))
 
-        sec_bg = QLabel("── BACKGROUND SUPPRESSION ──")
-        sec_bg.setStyleSheet(
-            "color:#5A8090;font-size:9px;font-weight:700;"
-            "letter-spacing:1.5px;margin-top:6px;")
-        cl.addWidget(sec_bg)
-
-        cl.addWidget(_param(
-            "CROWD_TOP_Y",
-            "Batas atas zona crowd valid (px dari atas frame). "
-            "Deteksi & track ghost di atas nilai ini akan disuppress. "
-            "Default 200px dari analisis CCTV Haji (y=0–180 adalah 95% background).",
-            self.crowd_top_y_spin
-        ))
-
         sec_met = QLabel("── METRIK & KLASIFIKASI ──")
         sec_met.setStyleSheet(
             "color:#5A8090;font-size:9px;font-weight:700;"
             "letter-spacing:1.5px;margin-top:6px;")
         cl.addWidget(sec_met)
 
-        cl.addWidget(_param("TAU (τ)",    "Batas kecepatan ternormalisasi",        self.tau_spin))
+        self.bottleneck_spin = _dspin(0.05, 0.001, 1.0, 0.01, 3)
+        self.sb_spin         = _dspin(0.15, 0.0,   1.0, 0.05, 2)
+
+        cl.addWidget(_param(
+            "TAU (τ)",
+            "Batas Lancar/Lambat — v_norm ≥ TAU → LANCAR (default 0.225 dari Q1 data)",
+            self.tau_spin,
+        ))
+        cl.addWidget(_param(
+            "BOTTLENECK_THRESH",
+            "Batas Lambat/Bottleneck — v_norm < nilai ini → nyaris diam (default 0.05)",
+            self.bottleneck_spin,
+        ))
+        cl.addWidget(_param(
+            "SB",
+            "Ambang rasio bottleneck per window untuk label BOTTLENECK (default 0.30)",
+            self.sb_spin,
+        ))
         cl.addWidget(_param("X_COUNT",    "Batas bawah jumlah → keramaian sedang", self.x_spin))
         cl.addWidget(_param("Y_COUNT",    "Batas bawah jumlah → keramaian tinggi", self.y_spin))
         cl.addWidget(_param("SH",         "Ambang proporsi lambat",                self.sh_spin))
@@ -194,17 +195,18 @@ class AdvancedSettings(QWidget):
 
     def ambil_params(self) -> dict:
         return {
-            "CONF_THRESH":   self.conf_spin.value(),
-            "IOU_THRESH":    self.iou_spin.value(),
-            "IMGSZ":         int(self.imgsz_combo.currentText()),
-            "WARMUP_FRAMES": self.warmup_spin.value(),
-            "CROWD_TOP_Y":   self.crowd_top_y_spin.value(),
-            "TAU":           self.tau_spin.value(),
-            "X_COUNT":       self.x_spin.value(),
-            "Y_COUNT":       self.y_spin.value(),
-            "SH":            self.sh_spin.value(),
-            "WINDOW_S":      self.window_spin.value(),
-            "INTERVAL_S":    self.interval_spin.value(),
+            "CONF_THRESH":       self.conf_spin.value(),
+            "IOU_THRESH":        self.iou_spin.value(),
+            "IMGSZ":             int(self.imgsz_combo.currentText()),
+            "WARMUP_FRAMES":     self.warmup_spin.value(),
+            "TAU":               self.tau_spin.value(),
+            "BOTTLENECK_THRESH": self.bottleneck_spin.value(),
+            "SB":                self.sb_spin.value(),
+            "X_COUNT":           self.x_spin.value(),
+            "Y_COUNT":           self.y_spin.value(),
+            "SH":                self.sh_spin.value(),
+            "WINDOW_S":          self.window_spin.value(),
+            "INTERVAL_S":        self.interval_spin.value(),
         }
 
 

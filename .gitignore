@@ -20,6 +20,18 @@ groundtruth/
 crowdhuman/
 visdrone_models/
 
+# Script evaluasi dan utilitas (tidak disertakan di repo)
+01_check_output.py
+02_evaluator.py
+03_visualizer.py
+eval_model_test.py
+eval_sensitivity_tau.py
+evaluator.py
+hitung_tau.py
+hitung_SH
+hitung_treshold_crowd
+trim video/
+
 # Python cache
 __pycache__/
 *.pyc
@@ -45,14 +57,10 @@ desktop.ini
 
 # Log dan file sementara
 *.log
+*.csv
 removed_frames_log.txt
 struktur_proyek.txt
 
-# Folder cadangan / eksperimen
-outputs/cadangan/
-outputs/tau/
-outputs/tau, sh, treshold crowd/
-outputs/eval/
-outputs/frames_sebelum_yolo_cctv_3/
-outputs/groundtruth_frames/
-outputs/video olah/
+# Model duplikat
+best (1).pt
+best (2).pt

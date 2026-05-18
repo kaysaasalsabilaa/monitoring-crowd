@@ -26,14 +26,11 @@ class Tracker:
         self.frame_height  = frame_height
 
     def perbarui(self, hasil_deteksi, frame):
-        # Perbarui dimensi frame jika frame tersedia
         if frame is not None:
             self.frame_height, self.frame_width = frame.shape[:2]
 
         self._last_det_bboxes = [d[0] for d in hasil_deteksi]
         tracks_mentah = self.tracker.update_tracks(hasil_deteksi, frame=frame)
-
-        # Kumpulkan track yang sudah terkonfirmasi dan valid
         tracks_confirmed = []
         for t in tracks_mentah:
             if not t.is_confirmed():
@@ -54,8 +51,6 @@ class Tracker:
 
             if w <= 0 or h <= 0:
                 continue
-
-            # Clamp koordinat agar tidak keluar batas frame
             x1 = max(0.0, float(x1))
             y1 = max(0.0, float(y1))
             x2 = min(float(self.frame_width),  float(x2))
@@ -68,8 +63,6 @@ class Tracker:
 
             cx = (x1 + x2) / 2.0
             cy = (y1 + y2) / 2.0
-
-            # Abaikan track di atas batas zona crowd
             if cy < self.crowd_top_y:
                 continue
 
@@ -84,7 +77,6 @@ class Tracker:
         return tracks_confirmed
 
     def _get_yolo_bbox(self, track):
-        # Coba ambil bbox langsung dari atribut deteksi terakhir
         try:
             ldet = track.last_detection
             if ldet is not None:
@@ -105,8 +97,6 @@ class Tracker:
                             return [x1, y1, w, h]
         except (AttributeError, TypeError, IndexError):
             pass
-
-        # Fallback: coba dari indeks deteksi ke _last_det_bboxes
         try:
             idx_deteksi = None
             for attr in ('det_id', '_det_id', 'origin_id', '_origin_id'):

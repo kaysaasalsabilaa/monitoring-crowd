@@ -154,6 +154,15 @@ function _color(l){
     case'RENDAH':return'#2ECC71';default:return'#3A7EA8';
   }
 }
+function _mvColor(l){
+  if(!l)return'#D0DCE4';
+  switch(l.toUpperCase()){
+    case'BOTTLENECK':return'#E05050';
+    case'TERSENDAT': return'#C9A84C';
+    case'LANCAR':    return'#2ECC71';
+    default:return'#D0DCE4';
+  }
+}
 function _emoji(l){
   if(!l)return'📍';
   switch(l.toUpperCase()){
@@ -203,8 +212,9 @@ function _popup(d,pid){
     '<hr class="pp-div"/>'+
     '<div class="pp-row"><span>Status</span><span class="pp-val">'+_status(d.crowd)+'</span></div>'+
     '<div class="pp-row"><span>Jumlah Orang</span><span class="pp-val">'+(d.count||'—')+'</span></div>'+
-    '<div class="pp-row"><span>Pergerakan</span><span class="pp-val">'+(d.movement||'—')+'</span></div>'+
+    '<div class="pp-row"><span>Arus</span><span class="pp-val" style="color:'+_mvColor(d.movement)+'">'+(d.movement||'—')+'</span></div>'+
     '<div class="pp-row"><span>Slow Ratio</span><span class="pp-val">'+(d.slow||'—')+'</span></div>'+
+    '<div class="pp-row"><span>BN Ratio</span><span class="pp-val">'+(d.bnratio||'—')+'</span></div>'+
     '<div class="pp-time">⏱ '+(d.timeStr||'—')+'</div>'+
     // ▼ SATU-SATUNYA jalur untuk trigger select/dashboard.
     // Klik marker biasa TIDAK memanggil _selectFromJS.
@@ -489,9 +499,10 @@ class WidgetPetaPemantauan(QWidget):
             "lon":      lon,
             "name":     name,
             "crowd":    str(row.get("label_crowd") or ""),
-            "movement": str(row.get("label_movement") or ""),
+            "movement": str(row.get("label_movement_3") or row.get("label_movement") or ""),
             "count":    f"{float(row.get('count_avg') or 0):.1f}",
             "slow":     f"{float(row.get('slow_ratio') or 0):.3f}",
+            "bnratio":  f"{float(row.get('bottleneck_ratio') or 0):.3f}",
             "timeStr":  (
                 f"Window #{row.get('window_k', 0)} · "
                 f"t={float(row.get('window_start', 0)):.1f}s"
@@ -676,14 +687,15 @@ class LencanaLabel(QWidget):
 class PanelDashboard(QWidget):
 
     TABLE_COLS = [
-        ("Window #",    "window_k",       None),
-        ("Mulai (s)",   "window_start",   ".1f"),
-        ("Selesai (s)", "window_end",     ".1f"),
-        ("Jml Orang",   "count_avg",      ".1f"),
-        ("Slow Ratio",  "slow_ratio",     ".3f"),
-        ("Keramaian",   "label_crowd",    None),
-        ("Pergerakan",  "label_movement", None),
-        ("Lokasi",      "lokasi",         None),
+        ("Window #",      "window_k",         None),
+        ("Mulai (s)",     "window_start",     ".1f"),
+        ("Selesai (s)",   "window_end",       ".1f"),
+        ("Jml Orang",     "count_avg",        ".1f"),
+        ("Slow Ratio",    "slow_ratio",       ".3f"),
+        ("BN Ratio",      "bottleneck_ratio", ".3f"),
+        ("Keramaian",     "label_crowd",      None),
+        ("Arus",          "label_movement_3", None),
+        ("Lokasi",        "lokasi",           None),
     ]
 
     def __init__(self, parent=None):
@@ -944,7 +956,7 @@ class PanelDashboard(QWidget):
             self._c_slow.atur_nilai(row.get("slow_ratio"),  f"{row.get('slow_ratio', 0):.3f}")
             crowd = row.get("label_crowd", "")
             self._b_crowd.atur_label(crowd)
-            self._b_move.atur_label(row.get("label_movement", ""))
+            self._b_move.atur_label(row.get("label_movement_3", row.get("label_movement", "")))
             self._alert.atur_keramaian(crowd)
 
         r = self._tbl.rowCount()
@@ -957,6 +969,16 @@ class PanelDashboard(QWidget):
             if key == "label_crowd":
                 c = {"TINGGI": "#C02020", "SEDANG": "#986010",
                      "RENDAH": "#1A7A50"}.get(str(val), "#9AA5AE")
+                item.setForeground(QColor(c))
+                f2 = item.font()
+                f2.setBold(True)
+                item.setFont(f2)
+            elif key == "label_movement_3":
+                c = {
+                    "BOTTLENECK": "#C02020",
+                    "TERSENDAT":  "#C08020",
+                    "LANCAR":     "#1A7A50",
+                }.get(str(val), "#9AA5AE")
                 item.setForeground(QColor(c))
                 f2 = item.font()
                 f2.setBold(True)
