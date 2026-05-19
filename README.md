@@ -55,13 +55,11 @@ v_norm = displacement_piksel / (Δt × bbox_height)
 
 Terdeteksi ketika area tertentu menunjukkan hampir tidak ada pergerakan, orang orang berhenti atau bergerak sangat lambat di bawah ambang bottleneck. Alert ini berbasis grid dan tidak bergantung pada ID individu.
 
-![Demo Bottleneck](docs/images/demo_alert_bottleneck.png)
-
 ---
 
 ### Alert: Diam di Keramaian
 
-Terdeteksi ketika satu atau dua orang berhenti dalam waktu cukup lama sementara orang-orang di sekitarnya terus bergerak. Kondisi ini berpotensi memicu hambatan di tengah arus yang berjalan.
+Terdeteksi ketika satu atau dua orang berhenti dalam waktu cukup lama sementara orang orang di sekitarnya terus bergerak. Kondisi ini berpotensi memicu hambatan di tengah arus yang berjalan.
 
 ![Demo Stationary](docs/images/demo_alert_stationary.png)
 
@@ -77,7 +75,7 @@ Terdeteksi ketika beberapa orang berkecepatan rendah atau hampir diam berkumpul 
 
 ### Peta Interaktif dan Dashboard
 
-Hasil analisis dari setiap titik pengamatan divisualisasikan pada peta interaktif berbasis Leaflet.js. Setiap lokasi ditampilkan sebagai marker berwarna sesuai tingkat keramaiannya - hijau untuk rendah, kuning untuk sedang, merah untuk tinggi yang disertai ringkasan kondisi pada dashboard.
+Hasil analisis dari setiap titik pengamatan divisualisasikan pada peta interaktif berbasis Leaflet.js. Setiap lokasi ditampilkan sebagai marker berwarna sesuai tingkat keramaiannya (hijau untuk rendah, kuning untuk sedang, merah untuk tinggi) yang disertai ringkasan kondisi pada dashboard.
 
 ![Demo Map](docs/images/demo_map.png)
 
